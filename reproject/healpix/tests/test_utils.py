@@ -58,5 +58,6 @@ def test_parse_input_healpix_data(tmpdir):
     with pytest.raises(TypeError) as exc:
         parse_input_healpix_data(data)
     assert exc.value.args[0] == (
-        "input_data should either be an HDU object or a tuple of (array, frame)"
+        "input_data should be an HDU object, a filename, or a tuple "
+        f"of (array, frame), got type(input_data)={type(data)!r}"
     )
