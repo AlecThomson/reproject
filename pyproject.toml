@@ -8,7 +8,7 @@ authors = [
     {name = "Sam Van Kooten"}
 ]
 license = {text = "BSD 3-Clause"}
-description = "Reproject astronomical images"
+description = "Reproject astronomical images and cubes"
 urls = {Homepage = "https://reproject.readthedocs.io"}
 requires-python = ">=3.11"
 dependencies = [
@@ -46,6 +46,7 @@ testall = [
 ]
 docs = [
     "sphinx-astropy[confv3]>=1.11",
+    "sphinx-reredirects",
     "pyvo",
     "matplotlib",
     "tqdm",
@@ -153,26 +154,8 @@ max-line-length = "100"
 write_to = "reproject/version.py"
 
 [tool.cibuildwheel]
-skip = "cp36-* pp* *-musllinux* cp31?t-*"
-test-skip = "*-manylinux_aarch64"
-environment-pass = ["EXTENSION_HELPERS_PY_LIMITED_API"]
-
-[tool.isort]
-profile = "black"
-multi_line_output = 3
-extend_skip_glob = [
-    "docs/*",
-    "setup.py"]
-line_length = 100
-known_third_party = ["astropy"]
-known_first_party = ["reproject"]
-group_by_package = true
-indented_import_headings = false
-length_sort_sections = ["future", "stdlib"]
-
-[tool.black]
-line-length = 100
-target-version = ['py38']
+skip = "cp315-* pp* *-musllinux* cp31?t-*"
+environment-pass = ["EXTENSION_HELPERS_PY_LIMITED_API", "RUSTUP_TOOLCHAIN"]
 
 [tool.numpydoc_validation]
 checks = [
@@ -196,6 +179,7 @@ ignore = [
 ]
 
 [tool.ruff]
+line-length = 100
 lint.select = [
   "B",  # flake8-bugbear
   "I",  # isort

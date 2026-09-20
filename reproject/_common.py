@@ -103,9 +103,10 @@ def _reproject_dispatcher(
         given as a tuple of sequential integers starting from zero (e.g.
         ``(0,)`` or ``(0, 1)``). If `None` (the default), any leading dimensions
         for which the WCS has fewer dimensions than the data are treated this
-        way. Reprojecting fewer dimensions than the WCS currently requires a
-        ``block_size`` that matches the output shape along the reprojected
-        dimensions.
+        way. Reprojecting fewer dimensions than the WCS is done with one block
+        per non-reprojected slice, so if ``block_size`` is specified, its
+        entries along the reprojected dimensions have to match the output
+        shape; if not, this block size is used automatically.
     array_out : `~numpy.ndarray`, optional
         An array in which to store the reprojected data.  This can be any numpy
         array including a memory map, which may be helpful when dealing with
@@ -140,7 +141,7 @@ def _reproject_dispatcher(
               the entire array into memory.
             * ``'none'``: load the dask array into memory as needed. This may
               result in the entire array being loaded into memory. However,
-              this can be efficient under two conditions: if the array easily
+              this can be efficient under two conditions: if the array comfortably
               fits into memory (as this will then be faster than ``'memmap'``),
               and when the data contains more dimensions than the input WCS and
               the block_size is chosen to iterate over the extra dimensions.
@@ -200,7 +201,7 @@ def _reproject_dispatcher(
         n_dim_reproject = len(shape_out) - len(non_reprojected_dims)
         if n_dim_reproject < 1:
             raise ValueError(
-                "non_reprojected_dims should leave at least one dimension to be " "reprojected"
+                "non_reprojected_dims should leave at least one dimension to be reprojected"
             )
 
     # If we are reprojecting fewer dimensions than the input or output WCS has,
@@ -217,6 +218,13 @@ def _reproject_dispatcher(
         or n_dim_reproject < wcs_out.low_level_wcs.pixel_n_dim
     )
 
+    # When reprojecting fewer dimensions than the WCS describes, the only
+    # supported chunking is one block covering each non-reprojected slice in
+    # full, so if no block size was specified (or it was set to 'auto'), use
+    # the output shape along the reprojected dimensions as the default.
+    if wcs_slicing_required and (block_size is None or block_size == "auto"):
+        block_size = tuple(shape_out[-n_dim_reproject:])
+
     # We set up a global temporary directory since this will be used e.g. to
     # store memory mapped Numpy arrays and zarr arrays.
 
@@ -226,7 +234,7 @@ def _reproject_dispatcher(
                 array_out = np.zeros(shape_out, dtype=float)
         elif array_out.shape != tuple(shape_out):
             raise ValueError(
-                f"Output array shape {array_out.shape} should match " f"shape_out={shape_out}"
+                f"Output array shape {array_out.shape} should match shape_out={shape_out}"
             )
         elif (array_out.dtype.kind, array_out.dtype.itemsize) != (
             array_in.dtype.kind,
@@ -303,7 +311,6 @@ def _reproject_dispatcher(
         # the chunking is determined automatically further below.
 
         if block_size is not None and block_size != "auto":
-
             if len(block_size) > len(shape_out):
                 raise ValueError(
                     f"block_size {block_size} cannot have more elements "
@@ -363,17 +370,14 @@ def _reproject_dispatcher(
             f"broadcasted dimension ({block_size=}, {shape_out=})"
         )
 
-        # TODO: support block_size="auto" (and the default of None) together
-        # with non_reprojected_dims so that this does not have to raise; "auto"
-        # currently falls through to the generic auto-chunking path further
-        # below, which cannot parallelize over the non-reprojected dimensions.
         if wcs_slicing_required and not broadcasted_parallelization:
             raise NotImplementedError(
                 "Reprojecting fewer dimensions than the input or output WCS "
                 "(for example using non_reprojected_dims) currently requires "
-                "passing a block_size whose entries along the reprojected "
-                "dimensions match the output shape (optionally with parallel=True "
-                "to compute the blocks concurrently)"
+                "each block to cover a single non-reprojected slice in full, "
+                "so block_size entries along the reprojected dimensions have "
+                "to match the output shape; leave block_size unset to use "
+                "this chunking automatically"
             )
 
         if output_footprint is None and return_footprint and return_type == "numpy":
@@ -463,7 +467,6 @@ def _reproject_dispatcher(
             return np.array([array, footprint])
 
         if broadcasted_parallelization:
-
             array_out_dask = da.empty(shape_out, chunks=block_size)
 
             # The input is reprojected in full for each output block, so it must
@@ -488,7 +491,6 @@ def _reproject_dispatcher(
             )
 
         else:
-
             # As we use the synchronous or threads scheduler, we don't need to worry about
             # the data getting copied, so if the data is already a Numpy array (including
             # a memory-mapped array) then we don't need to do anything special. However,
@@ -506,11 +508,14 @@ def _reproject_dispatcher(
                 and array_in.flags.c_contiguous
                 and isinstance(array_in.base, mmap.mmap)
             ):
-                array_in_or_path = array_in.filename, {
-                    "dtype": array_in.dtype,
-                    "shape": array_in.shape,
-                    "offset": array_in.offset,
-                }
+                array_in_or_path = (
+                    array_in.filename,
+                    {
+                        "dtype": array_in.dtype,
+                        "shape": array_in.shape,
+                        "offset": array_in.offset,
+                    },
+                )
             elif isinstance(array_in, da.core.Array) or return_type == "dask":
                 if dask_method == "memmap":
                     if return_type == "dask":
